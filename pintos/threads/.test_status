@@ -1,0 +1,6 @@
+alarm-simultaneous PASS
+alarm-single FAIL
+alarm-priority FAIL
+alarm-zero PASS
+alarm-negative FAIL
+alarm-multiple PASS
