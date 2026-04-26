@@ -98,14 +98,86 @@ void thread_init(void)
 	/* Reload the temporal gdt for the kernel
 	 * This gdt does not include the user context.
 	 * The kernel will rebuild the gdt with user context, in gdt_init (). */
+	/**
+	 * CPU의 Segment/Register 설정
+	 * gdt : CPU가 사용할 GDT 테이블 본체
+	 * desc_ptr : "그 GDT가 메모리 어디에 있고 크기가 얼마인지"를 알려주는 포맷
+	 * lgdt() : 그 정보를 CPU의 GDTR 레지스터에 로드하는 함수
+	 *
+	 * gdt(global descriptor table) : 메모리를 어떻게 나눠서 쓸지 정의해놓은 표(테이블) - 세그먼트 기반 메모리 관리에서 사용하는 설명서
+	 * -> 근데 최근 OS는 페이징을 써서 세그먼트를 거의 안 쓴다고 함.
+	 * [ 전체 메모리 ] <= 옛날 x86 CPU 메모리 방식
+	 * -> 코드 영역
+	 * -> 데이터 영역
+	 * -> 스택 영역
+	 *
+	 * 문제 (segment)
+	 * 1. 아무 주소나 접근 가능하면 위험
+	 * 2. 코드/데이터 구분 필요
+	 * 3. 커널/유저 권한 분리 필요
+	 * -> 생겨나게 된 개념이 세그먼트(segment) - gdt는 엄청 길다. (TODO 블로그에 작성해야 하는데..)
+	 */
 	struct desc_ptr gdt_ds = {
 		.size = sizeof(gdt) - 1,
 		.address = (uint64_t)gdt};
+	/**
+	 * static __inline void lgdt(const struct desc_ptr *dtr) {
+	 *		__asm __volatile("lgdt %0" : : "m" (*dtr));
+	 * }
+	 *
+	 * 사실상 lgdt, ltr, lidt, invlpg 같은 함수는 사실상 CPU 명령 1개짜리 래퍼 -> 함수 호출 오버헤드 발생하면 아까움
+	 *
+	 * Load Global Descriptor Table Register
+	 * 즉, CPU 내부의 GDTR 레지스터에 GDT 정보 로드
+	 *
+	 * __attribute__ : GCC/Clang 계열 컴파일러 확장 문법 "이 함수/구조체/변수는 이런 성질이 있다"고 컴파일러에게 힌트나 졔약을 주는 기능
+	 * __attribute__((packed)) : 구조체 패딩을 넣지 말라는 뜻
+	 * __attritube__((always_inline)) : 가능한 한 반드시 인라인하라는 뜻
+	 * __attribute__((unused)) : 안 써도 경고 내지 말라는 뜻
+	 * __attribute__((noreturn)) : 이 함수는 반환하지 않는다는 뜻
+	 *
+	 * __inline : 함수 호출 오버헤드를 줄이기 위해 컴파일러가 함수 호출 대신 본문을 직접 펼쳐 넣도록 유도하는 키워드
+	 * lgdt(&gdt_ds);를 진짜 함수 call로 만들기보다, 그 자리에 바로 어셈블리 한 줄을 넣게 하려는 의도
+	 *
+	 * __asm : C 코드 안에 직접 어셈블리어를 넣는 문법
+	 * lgdt %0 : 실제 실행할 어셈블리 명령
+	 * %0 : 아래 operand 목록의 0번째 피연산자
+	 * "m" (*dtr) : *dtr를 메모리 operand로 쓰라는 뜻
+	 * 메모리에 있는 desc_ptr 포맷 값을 읽어서 lgdt 명령의 피연산자로 써라 라는 뜻
+	 *
+	 * __volatile : "이 어셈블리 명령은 의미 있는 부작용이 있으니, 컴파일러가 멋대로 제거하거나 순서를 바꾸지 마라"라고 강제하는 것
+	 */
 	lgdt(&gdt_ds);
 
 	/* Init the globla thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
+	/**
+	 * 지금 당장 free하면 위험한 죽은 스레드들을, 나중에 안전한 시점에 정리하려고 모아두는 리스트
+	 * static struct list destruction_req;
+	 *
+	 * 스레드가 thread_exit() 할 때 그 스레드는 아직 자기 자신의 커널 스택 위에서 실행 중이기 때문
+	 * 만약 종료하는 스레드가 자기 struct thread 페이지를 바로 free 해버리면,
+	 * 지금 쓰고 있는 스택
+	 * 지금 쓰고 있는 struct thread
+	 * 를 스스로 치워버리는 셈이라 바로 망가짐
+	 *
+	 * 1. 종료 스레드가 thread_exit() 호출
+	 * - 자기 상태를 THREAD_DYING으로 바꿈
+	 * - 다른 스레드로 스케줄링
+	 * 2. 설계 전환 직전 schedule()에서 이전 스레드가 죽는 중이면 destruction_req에 넣음
+	 * 3. 다음에 어떤 스레드가 do_schedule()에 들어왔을 때, destruction_req 리스트를 돌면서 안전하게 palloc_free_page()
+	 * 죽는 스레드 A
+	 *	-> thread_exit()
+	 *	-> status = THREAD_DYING
+	 *	-> 다른 스레드로 전환
+	 *	-> A는 destruction_req에 등록
+	 *
+	 * 다른 살아있는 스레드 B
+	 *	-> do_schedule()
+	 *	-> destruction_req에서 A를 꺼냄
+	 *	-> A의 페이지를 free
+	 */
 	list_init(&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -559,6 +631,7 @@ thread_launch(struct thread *th)
  * It's not safe to call printf() in the schedule(). */
 /**
  * 현재 실행중인 스레드의 상태를 바꾸고, 실제 스케줄러 schedule()로 넘기는 함수
+ * thread_exit()할 때, 스레드는 아직 자기 자신의 커널 스택 위에서 실행 중이기 때문에 destruction_req에서 정리할 스레드를 모아두고 정리
  */
 static void
 do_schedule(int status)

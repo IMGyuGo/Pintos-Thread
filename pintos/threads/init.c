@@ -89,12 +89,35 @@ int main(void)
 	bss_init();
 
 	/* Break command line into arguments and parse options. */
+	/**
+	 * 커맨드라인을 읽고 printf()로 현재 받은 인자들 출력
+	 *
+	 * -q -mlfqs run alarm-single
+	 * argv = { "-q", "-mlfqs", "run", "alarm-single", NULL }
+	 */
 	argv = read_command_line();
+	/**
+	 * -h : 도움말 출력
+	 * -q : 끝나면 power off
+	 * -f : filesys 포맷
+	 * -rs=SEED : 랜덤 시드 설정
+	 * -mlfqs : MLFQS 스케줄러 사용
+	 */
 	argv = parse_options(argv);
 
 	/* Initialize ourselves as a thread so we can use locks,
 	   then enable console locking. */
+	/**
+	 * 인터럽트 꺼진 상태인지 확인 후
+	 * 임시 커널 GDT를 설명하는 desc_ptr 생성
+	 * lgdt로 CPU에 "이제 이 GDT를 써"락 로드
+	 * 스레드 시스템용 tid락/ 레디 리스트, destruction_req 리스트 초기화
+	 * 지금 이미 실행 중인 부트 흐름을 main 스레드로 변환
+	 */
 	thread_init();
+	/**
+	 * 스레드 시스템용 콘솔 락 초기화
+	 */
 	console_init();
 
 	/* Initialize memory system. */
@@ -187,15 +210,21 @@ paging_init(uint64_t mem_end)
 
 /* Breaks the kernel command line into words and returns them as
    an argv-like array. */
+/**
+ *
+ */
 static char **
 read_command_line(void)
 {
+	// 65 크기로 둔 이유 : a/0b/0 처럼 한 글자당 2바이트씩 필요로 하기 때문 그리고 마지막 + 1 은 마지막에 NULL이 무조건 들어가서
 	static char *argv[LOADER_ARGS_LEN / 2 + 1];
 	char *p, *end;
 	int argc;
 	int i;
 
+	// 인자 개수
 	argc = *(uint32_t *)ptov(LOADER_ARG_CNT);
+	// 현재 커맨드라인 문자열들이 저장된 버퍼의 시작 주소
 	p = ptov(LOADER_ARGS);
 	end = p + LOADER_ARGS_LEN;
 	for (i = 0; i < argc; i++)
@@ -232,6 +261,7 @@ parse_options(char **argv)
 		char *value = strtok_r(NULL, "", &save_ptr);
 
 		if (!strcmp(name, "-h"))
+			// 도움말 출력
 			usage();
 		else if (!strcmp(name, "-q"))
 			power_off_when_done = true;

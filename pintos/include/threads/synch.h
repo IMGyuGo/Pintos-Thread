@@ -5,6 +5,11 @@
 #include <stdbool.h>
 
 /* A counting semaphore. */
+/**
+ * value : 값이 0,1인 binary semaphore
+ * list_init(&sema->waiters) -> head <-> tail
+ * 초기화 후 실제로 값이 들어가게 되면 head <-> thread <-> tail 이런 형태로 저장
+ */
 struct semaphore
 {
 	unsigned value;		 /* Current value. */
@@ -18,6 +23,13 @@ void sema_up(struct semaphore *);
 void sema_self_test(void);
 
 /* Lock. */
+/**
+ * lock->holder = NULL; -> 아무도 이 락을 들고 있지 않다는 뜻 (현재 락 소유자)
+ * lock은 내부적으로 값이 1 인 binary semaphore를 써서 구현 (0, 1)
+ * semaphore->value = 1; -> 지금 한 스레드가 들어갈 수 있다는 의미
+ * 누군가 lock_acquire()하면 내부적으로 sema_down() 하면서 1이 0이 되고, 그 순간부터 다른 스레드는 들어갈 수 없게 됨.
+ * 나중에 lock_release()하면 sema_up()해서 다시 1이 되어 다음 스레드가 들어갈 수 있는 상태가 됨.
+ */
 struct lock
 {
 	struct thread *holder;		/* Thread holding lock (for debugging). */

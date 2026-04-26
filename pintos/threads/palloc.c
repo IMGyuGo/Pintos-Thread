@@ -271,6 +271,11 @@ palloc_init(void)
 	/* End of the kernel as recorded by the linker.
 	   See kernel.lds.S. */
 	extern char _end;
+	/**
+	 * {.size = 0} -> C의 designated initializer 문법
+	 * struct area의 멤버 중
+	 * size 만 명시적으로 0으로 초기화하겠다는 뜻
+	 */
 	struct area base_mem = {.size = 0};
 	struct area ext_mem = {.size = 0};
 

@@ -87,10 +87,15 @@ test_sleep(int thread_cnt, int iterations)
     PANIC("couldn't allocate memory for test");
 
   /* Initialize test. */
-  test.start = timer_ticks() + 100; // 현재 타이머 틱을 가져와서 100을 더함?
-  test.iterations = iterations;     // 현재 반복횟수를 저장
-  lock_init(&test.output_lock);     // 쓰레드의 세마포어와 락 초기화 설정
-  test.output_pos = output;         // 현재 공유된 상태 위치값
+  /**
+   * 현재 타이머 틱을 가져와서 100을 더하는 이유
+   * - 테스트가 보고 싶은건 "스레드 생성 속도"가 아니라 timer_sleep()이 약속한 시점에 제대로 깨우는가 이기 때문
+   * - 모든 worker가 충분히 생성되고, sleep list에 들어간 뒤에 첫 wakeup 시각이 오도록 여유를 주는 것
+   */
+  test.start = timer_ticks() + 100;
+  test.iterations = iterations; // 현재 반복횟수를 저장
+  lock_init(&test.output_lock); // 쓰레드의 세마포어와 락 초기화 설정
+  test.output_pos = output;     // 현재 공유된 상태 위치값
 
   /* Start threads. */
   ASSERT(output != NULL);
